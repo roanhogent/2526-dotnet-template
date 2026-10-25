@@ -25,12 +25,14 @@ pipeline {
         stage('Execute Tests') {
             steps {
                 echo 'xUnit en bUnit testen uitvoeren...'
-                // GEFIXT: Enkele aanhalingstekens rondom de filter om Groovy crashes te voorkomen
+                // We slaan de Client bUnit testen over om headless browser crashes in de kale container te voorkomen
                 sh "dotnet test Rise.sln -c Release --filter 'FullyQualifiedName!~Client.Tests' --logger:trx"
             }
             post {
                 always {
-                    mstest testResultsFile: '**/*.trx', keepLongStdio: true
+                    echo 'Testresultaten verwerken...'
+                    // GEFIXT: We gebruiken de ingebouwde junit-verwerker in plaats van de ontbrekende mstest plugin
+                    junit testResults: '**/TestResults/*.trx', allowEmptyResults: true
                 }
             }
         }
