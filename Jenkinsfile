@@ -39,9 +39,10 @@ pipeline {
         stage('Docker Deploy') {
             steps {
                 echo 'Rechten op Debian host-datamap goedzetten voor SQLite...'
-                sh "sudo mkdir -p ${env.HOST_DATA_DIR}"
-                sh "sudo chown -R 33:33 ${env.HOST_DATA_DIR}"
-                sh "sudo chmod 775 ${env.HOST_DATA_DIR}"
+                // GEFIXT: 'sudo' overal weggelaten omdat de Jenkins container al rootrechten heeft
+                sh "mkdir -p ${env.HOST_DATA_DIR}"
+                sh "chown -R 33:33 ${env.HOST_DATA_DIR}"
+                sh "chmod 775 ${env.HOST_DATA_DIR}"
 
                 echo 'Oude container opruimen...'
                 sh "docker stop ${env.CONTAINER_NAME} || true"
