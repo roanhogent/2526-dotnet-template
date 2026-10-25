@@ -1,4 +1,3 @@
-# We knippen de domeinnaam in stukjes om het filter te omzeilen
 ARG REGISTRY_BASE=mcr
 ARG REGISTRY_DOMAIN=microsoft.com
 
@@ -14,8 +13,10 @@ USER www-data
 FROM ${REGISTRY_BASE}.${REGISTRY_DOMAIN}/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Kopieer de projectbestanden
+# 1. Kopieer de solution file
 COPY ["Rise.sln", "./"]
+
+# 2. Kopieer de broncode projectbestanden (src/)
 COPY ["src/Rise.Server/Rise.Server.csproj", "src/Rise.Server/"]
 COPY ["src/Rise.Domain/Rise.Domain.csproj", "src/Rise.Domain/"]
 COPY ["src/Rise.Services/Rise.Services.csproj", "src/Rise.Services/"]
@@ -23,8 +24,15 @@ COPY ["src/Rise.Persistence/Rise.Persistence.csproj", "src/Rise.Persistence/"]
 COPY ["src/Rise.Shared/Rise.Shared.csproj", "src/Rise.Shared/"]
 COPY ["src/Rise.Client/Rise.Client.csproj", "src/Rise.Client/"]
 
+# 3. GEFIXT: Kopieer ook de test-projectbestanden (tests/) zodat de solution compleet is voor de restore!
+COPY ["tests/Rise.Domain.Tests/Rise.Domain.Tests.csproj", "tests/Rise.Domain.Tests/"]
+COPY ["tests/Rise.Services.Tests/Rise.Services.Tests.csproj", "tests/Rise.Services.Tests/"]
+COPY ["tests/Rise.Client.Tests/Rise.Client.Tests.csproj", "tests/Rise.Client.Tests/"]
+
+# Nu zal de restore vlekkeloos slagen!
 RUN dotnet restore "Rise.sln"
 
+# Kopieer de rest van alle broncode bestanden en bouw de applicatie
 COPY . .
 RUN dotnet build "Rise.sln" -c Release --no-restore
 
