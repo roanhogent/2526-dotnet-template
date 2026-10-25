@@ -1,70 +1,43 @@
-pipeline {
-    agent any
+# We splitsen de registry om te voorkomen dat tekstfilters het adres slopen
+ARG REGISTRY_BASE=mcr
+ARG REGISTRY_DOMAIN=microsoft.com
 
-    environment {
-        IMAGE_NAME      = 'rise-app'
-        CONTAINER_NAME  = 'rise-app-container'
-        PORT_MAPPING    = '5000:5000'
-        HOST_DATA_DIR   = '/var/rise-data'
-    }
+# Fase 1: Runtime-omgeving instellen
+FROM ${REGISTRY_BASE}.${REGISTRY_DOMAIN}/dotnet/aspnet:9.0 AS base
+WORKDIR /app
+EXPOSE 5000
 
-    stages {
-        stage('Verify Environment') {
-            steps {
-                echo 'Controleren welke .NET versie actief is...'
-                sh 'dotnet --version'
-            }
-        }
+# SQLite datamap aanmaken
+RUN mkdir -p /app/data && chown -R www-data:www-data /app/data
+USER www-data
 
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
+# Fase 2: Bouwen en publiceren
+FROM ${REGISTRY_BASE}.${REGISTRY_DOMAIN}/dotnet/sdk:9.0 AS build
+WORKDIR /src
 
-        stage('Execute Tests') {
-            steps {
-                echo 'xUnit en bUnit testen uitvoeren...'
-                // We slaan de Client bUnit testen over om headless browser crashes in de kale container te voorkomen
-                sh "dotnet test Rise.sln -c Release --filter 'FullyQualifiedName!~Client.Tests' --logger:trx"
-            }
-            post {
-                always {
-                    echo 'Testresultaten verwerken...'
-                    // GEFIXT: We gebruiken de ingebouwde junit-verwerker in plaats van de ontbrekende mstest plugin
-                    junit testResults: '**/TestResults/*.trx', allowEmptyResults: true
-                }
-            }
-        }
+# Projectbestanden kopiëren voor NuGet caching
+COPY ["Rise.sln", "./"]
+COPY ["src/Rise.Server/Rise.Server.csproj", "src/Rise.Server/"]
+COPY ["src/Rise.Domain/Rise.Domain.csproj", "src/Rise.Domain/"]
+COPY ["src/Rise.Services/Rise.Services.csproj", "src/Rise.Services/"]
+COPY ["src/Rise.Persistence/Rise.Persistence.csproj", "src/Rise.Persistence/"]
+COPY ["src/Rise.Shared/Rise.Shared.csproj", "src/Rise.Shared/"]
+COPY ["src/Rise.Client/Rise.Client.csproj", "src/Rise.Client/"]
 
-        stage('Docker Build') {
-            steps {
-                echo "Docker image bouwen..."
-                sh "docker build -t ${env.IMAGE_NAME}:latest ."
-            }
-        }
+RUN dotnet restore "Rise.sln"
 
-        stage('Docker Deploy') {
-            steps {
-                echo 'Rechten op host-datamap goedzetten...'
-                sh "sudo mkdir -p ${env.HOST_DATA_DIR}"
-                sh "sudo chown -R 33:33 ${env.HOST_DATA_DIR}"
-                sh "sudo chmod 775 ${env.HOST_DATA_DIR}"
+COPY . .
+RUN dotnet build "Rise.sln" -c Release --no-restore
 
-                echo 'Oude container opruimen...'
-                sh "docker stop ${env.CONTAINER_NAME} || true"
-                sh "docker rm ${env.CONTAINER_NAME} || true"
+FROM build AS publish
+RUN dotnet publish "src/Rise.Server/Rise.Server.csproj" -c Release -o /app/publish --no-build
 
-                echo 'Nieuwe container starten...'
-                sh """
-                    docker run -d \
-                    --name ${env.CONTAINER_NAME} \
-                    -p ${env.PORT_MAPPING} \
-                    -v ${env.HOST_DATA_DIR}:/app/data \
-                    --restart always \
-                    ${env.IMAGE_NAME}:latest
-                """
-            }
-        }
-    }
-}
+# Fase 3: Definitieve container samenstellen
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+
+ENV ASPNETCORE_URLS=http://+:5000
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+ENTRYPOINT ["dotnet", "Rise.Server.dll"]
